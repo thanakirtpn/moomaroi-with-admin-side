@@ -49,37 +49,7 @@ app.post('/menu', (req, res) => {
   });
 });
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+// Guy edit
 // Multer configuration for menu images
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
