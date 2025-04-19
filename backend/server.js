@@ -1,5 +1,5 @@
 const express = require('express');
-const mysql = require('mysql2');
+const mysql = require('mysql2/promise');
 const path = require('path');
 const multer = require('multer');
 const cors = require('cors');
@@ -8,20 +8,15 @@ const cors = require('cors');
 const app = express();
 app.use(express.json());
 app.use(cors());
-// 🔐 ตั้งค่าการเชื่อมต่อ MySQL แบบใส่ตรง ๆ
-const connection = mysql.createConnection({
-    host: 'localhost',
-    user: 'root',
-    password: 'Kate071046',
-    database: 'MoomAroiDB'
-  });
 
-connection.connect((err) => {
-  if (err) {
-    console.error('❌ MySQL connection failed:', err.stack);
-    return;
-  }
-  console.log('✅ Connected to MySQL as id ' + connection.threadId);
+const pool = mysql.createPool({
+  host: 'localhost',
+  user: 'root',
+  password: 'Kate071046',
+  database: 'MoomAroiDB',
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0,
 });
 
 // -------------------- Routes --------------------
@@ -29,24 +24,6 @@ connection.connect((err) => {
 // ทดสอบการทำงาน
 app.get('/', (req, res) => {
   res.send('🚀 Moom Aroi Backend is running!');
-});
-
-// GET: ดึงเมนูทั้งหมด
-app.get('/menu', (req, res) => {
-  connection.query('SELECT * FROM menu', (err, results) => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json(results);
-  });
-});
-
-// POST: เพิ่มเมนูใหม่
-app.post('/menu', (req, res) => {
-  const { name_tha, name_eng, category, short_description, full_description, tags } = req.body;
-  const sql = 'INSERT INTO menu (name_tha, name_eng, category, short_description, full_description, tags) VALUES (?, ?, ?, ?, ?, ?)';
-  connection.query(sql, [name_tha, name_eng, category, short_description, full_description, tags], (err, result) => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json({ message: '✅ Menu item added', id: result.insertId });
-  });
 });
 
 // Guy edit
@@ -76,17 +53,6 @@ const upload = multer({
 }).single('image');
 
 app.use('/uploads', express.static('uploads'));
-
-// MySQL connection pool
-const pool = mysql.createPool({
-  host: 'localhost',
-  user: 'food2_user',
-  password: 'food2_secure_password',
-  database: 'food2',
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0,
-});
 
 // Multer error handling
 app.use((err, req, res, next) => {
@@ -119,7 +85,6 @@ app.get('/api/menu', async (req, res) => {
     console.log('[%s] Executing query: %s with params: %s', new Date().toISOString(), query, queryParams);
     const [rows] = await connection.query(query, queryParams);
     console.log('[%s] Select query executed successfully, rows: %d', new Date().toISOString(), rows.length);
-
     connection.release();
     console.log('[%s] MySQL connection released', new Date().toISOString());
 
@@ -130,23 +95,28 @@ app.get('/api/menu', async (req, res) => {
   }
 });
 
-// POST /api/menu - Add new menu item
-app.post('/api/menu', (req, res) => {
+
+// POST /api/menu - Add new menu item เหลือทำเรื่อง tags
+app.post('/api/admin/menu', (req, res) => {
   upload(req, res, async (err) => {
     if (err) {
-      return;
+      return res.status(400).json({ error: err.message });
     }
 
-    const { name, subtitle, category, basePrice, description } = req.body;
+    console.log('[%s] req.body:', new Date().toISOString(), req.body);
+    console.log('[%s] req.file:', new Date().toISOString(), req.file);
+
+    const { category, name_tha, name_eng, short_description, full_description, price_starts_at, tags } = req.body;
     const image = req.file ? `/uploads/${req.file.filename}` : null;
 
-    if (!name || !category || !basePrice || !image) {
-      return res.status(400).json({ error: 'Missing required fields' });
+    if (!category || !name_eng || !short_description || !full_description || !price_starts_at || !tags || !image) {
+      console.log('[%s] Missing fields - category:', category, 'name_eng:', name_eng, 'short_description:', short_description, 'full_description:', full_description, 'price_starts_at:', price_starts_at, 'tags:', tags, 'image:', image);
+      return res.status(400).json({ error: 'Missing required fields: category, name_eng, short_description, full_description, price_starts_at, tags, and image are required' });
     }
 
-    const basePriceNum = parseFloat(basePrice);
-    if (isNaN(basePriceNum) || basePriceNum <= 0) {
-      return res.status(400).json({ error: 'Base price must be a valid positive number' });
+    const priceNum = parseFloat(price_starts_at);
+    if (isNaN(priceNum) || priceNum <= 0) {
+      return res.status(400).json({ error: 'Price must be a valid positive number' });
     }
 
     try {
@@ -156,8 +126,8 @@ app.post('/api/menu', (req, res) => {
 
       console.log('[%s] Executing query: INSERT INTO menu', new Date().toISOString());
       const [result] = await connection.query(
-        'INSERT INTO menu (name, subtitle, category, base_price, description, image, orders) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [name, subtitle, category, basePriceNum, description, image, 0]
+        'INSERT INTO menu (category, name_tha, name_eng, short_description, full_description, price_starts_at, tags, image) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        [category, name_tha || null, name_eng, short_description, full_description, priceNum, tags, image]
       );
       console.log('[%s] Insert query executed successfully, inserted ID: %d', new Date().toISOString(), result.insertId);
 
@@ -175,6 +145,8 @@ app.post('/api/menu', (req, res) => {
     }
   });
 });
+
+
 
 app.get('/api/options', async (req, res) => {
   try {
@@ -370,37 +342,6 @@ app.patch('/api/orders/:id/status', async (req, res) => {
   }
 });
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 // GET /api/tables - ดึงสถานะทุกโต๊ะและราคารวม
 app.get('/api/tables', async (req, res) => {
   try {
@@ -591,25 +532,6 @@ app.post('/api/tables/:table_no/complete', async (req, res) => {
     res.status(500).json({ error: 'Internal server error' });
   }
 });
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // เริ่มเซิร์ฟเวอร์
 const PORT = 3000;
