@@ -96,7 +96,7 @@ app.get('/api/menu', async (req, res) => {
   }
 });
 
-
+// ------------------------------------------------------------------ Admin Edit Menu --------------------------------------------------------------------
 // POST /api/menu - Add new menu item เหลือทำเรื่อง tags
 app.post('/api/admin/menu', (req, res) => {
   upload(req, res, async (err) => {
@@ -188,9 +188,84 @@ app.delete('/api/admin/menu/:id', async (req, res) => {
   }
 });
 
+// PATCH /api/admin/menu/:id - Update a menu item
+app.patch('/api/admin/menu/:id', (req, res) => {
+  upload(req, res, async (err) => {
+    if (err) {
+      return res.status(400).json({ error: err.message });
+    }
+
+    const menuId = req.params.id;
+    const { category, name_tha, name_eng, short_description, full_description, price_starts_at, tags } = req.body;
+    const newImage = req.file ? `/uploads/${req.file.filename}` : null;
+
+    try {
+      const connection = await pool.getConnection();
+      console.log('[%s] Connecting to MySQL...', new Date().toISOString());
+
+      // ดึงข้อมูลเมนูเดิม
+      const [existingRows] = await connection.query('SELECT * FROM menu WHERE id = ?', [menuId]);
+      if (existingRows.length === 0) {
+        connection.release();
+        return res.status(404).json({ error: 'Menu item not found' });
+      }
+
+      const existingMenu = existingRows[0];
+
+      // ถ้ามีการอัปโหลดรูปใหม่ → ลบรูปเก่า
+      if (newImage && existingMenu.image) {
+        const oldImagePath = path.join(__dirname, 'uploads', path.basename(existingMenu.image));
+        if (fs.existsSync(oldImagePath)) {
+          fs.unlinkSync(oldImagePath);
+          console.log('[%s] Deleted old image: %s', new Date().toISOString(), oldImagePath);
+        }
+      }
+
+      // เตรียมข้อมูลใหม่
+      const updatedFields = {
+        category: category || existingMenu.category,
+        name_tha: name_tha || existingMenu.name_tha,
+        name_eng: name_eng || existingMenu.name_eng,
+        short_description: short_description || existingMenu.short_description,
+        full_description: full_description || existingMenu.full_description,
+        price_starts_at: price_starts_at ? parseFloat(price_starts_at) : existingMenu.price_starts_at,
+        tags: tags || existingMenu.tags,
+        image: newImage || existingMenu.image
+      };
+
+      // อัปเดตเมนู
+      await connection.query(
+        `UPDATE menu SET category = ?, name_tha = ?, name_eng = ?, short_description = ?, 
+         full_description = ?, price_starts_at = ?, tags = ?, image = ? WHERE id = ?`,
+        [
+          updatedFields.category,
+          updatedFields.name_tha,
+          updatedFields.name_eng,
+          updatedFields.short_description,
+          updatedFields.full_description,
+          updatedFields.price_starts_at,
+          updatedFields.tags,
+          updatedFields.image,
+          menuId
+        ]
+      );
+
+      console.log('[%s] Menu updated for ID %s', new Date().toISOString(), menuId);
+
+      // ดึงเมนูอัปเดตกลับมา
+      const [updatedRows] = await connection.query('SELECT * FROM menu WHERE id = ?', [menuId]);
+      connection.release();
+
+      res.json(updatedRows[0]);
+    } catch (error) {
+      console.error('[%s] Error in PATCH /api/admin/menu/:id:', new Date().toISOString(), error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+});
 
 
-
+// ------------------------------------------------------------------ User Get Options ------------------------------------------------------------------
 app.get('/api/options', async (req, res) => {
   try {
     const connection = await pool.getConnection();
@@ -207,6 +282,10 @@ app.get('/api/options', async (req, res) => {
   }
 });
 
+// ------------------------------------------------------------------ User Orders -----------------------------------------------------------------------
+
+
+
 // POST /api/orders - Create a new order
 app.post('/api/orders', async (req, res) => {
   const { table_no, items } = req.body;
@@ -220,20 +299,34 @@ app.post('/api/orders', async (req, res) => {
     connection = await pool.getConnection();
     await connection.beginTransaction();
 
-    // คำนวณ total_price
+    // ตรวจสอบ menu_id และราคา
+    for (const item of items) {
+      const [menuRows] = await connection.query('SELECT id, price_starts_at FROM menu WHERE id = ?', [item.menu_id]);
+      if (menuRows.length === 0) {
+        await connection.rollback();
+        return res.status(400).json({ error: `ไม่พบ menu_id: ${item.menu_id}` });
+      }
+      const menuPrice = parseFloat(menuRows[0].price_starts_at);
+      if (parseFloat(item.price) !== menuPrice) {
+        await connection.rollback();
+        return res.status(400).json({ error: `ราคาไม่ถูกต้องสำหรับ menu_id ${item.menu_id}` });
+      }
+    }
+
+    // คำนวณราคารวม
     let total_price = 0;
     for (const item of items) {
       total_price += parseFloat(item.price) * item.quantity;
     }
 
-    // Insert order
+    // บันทึกออเดอร์
     const [orderResult] = await connection.query(
       'INSERT INTO orders (table_no, order_date, order_time, total_price, status, created_at) VALUES (?, ?, ?, ?, ?, ?)',
       [table_no, order_date, order_time, total_price.toFixed(2), status, created_at]
     );
     const order_id = orderResult.insertId;
 
-    // Insert order items
+    // บันทึกรายการในออเดอร์
     for (const item of items) {
       await connection.query(
         'INSERT INTO order_items (order_id, menu_id, quantity, price, meat, add_on) VALUES (?, ?, ?, ?, ?, ?)',
@@ -241,7 +334,7 @@ app.post('/api/orders', async (req, res) => {
       );
     }
 
-    // Select order with items
+    // ดึงข้อมูลออเดอร์พร้อมรายการ
     const selectQuery = `
       SELECT 
         o.id, o.table_no, 
@@ -249,7 +342,7 @@ app.post('/api/orders', async (req, res) => {
         TIME_FORMAT(o.order_time, '%H:%i:%s') AS order_time,
         o.total_price, o.status,
         oi.id AS order_item_id, oi.menu_id, oi.quantity, oi.price, oi.meat, oi.add_on,
-        m.name AS menu_name, m.subtitle, m.image AS menu_image
+        m.name_eng AS menu_name, m.short_description AS subtitle, m.image AS menu_image
       FROM orders o
       LEFT JOIN order_items oi ON o.id = oi.order_id
       LEFT JOIN menu m ON oi.menu_id = m.id
@@ -284,12 +377,12 @@ app.post('/api/orders', async (req, res) => {
     });
 
     await connection.commit();
-    console.log('[%s] Order created:', new Date().toISOString(), JSON.stringify(order, null, 2));
+    console.log('[%s] สร้างออเดอร์สำเร็จ:', new Date().toISOString(), JSON.stringify(order, null, 2));
     res.status(201).json(order);
   } catch (err) {
     if (connection) await connection.rollback();
-    console.error('[%s] Error in POST /api/orders:', new Date().toISOString(), err);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('[%s] เกิดข้อผิดพลาดใน POST /api/orders:', new Date().toISOString(), err);
+    res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในเซิร์ฟเวอร์' });
   } finally {
     if (connection) connection.release();
   }
