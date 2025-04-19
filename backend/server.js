@@ -3,6 +3,7 @@ const mysql = require('mysql2/promise');
 const path = require('path');
 const multer = require('multer');
 const cors = require('cors');
+const fs = require('fs');
 
 
 const app = express();
@@ -145,6 +146,48 @@ app.post('/api/admin/menu', (req, res) => {
     }
   });
 });
+
+// DELETE /api/admin/menu/:id - Delete a menu item by ID
+app.delete('/api/admin/menu/:id', async (req, res) => {
+  const menuId = req.params.id;
+
+  try {
+    const connection = await pool.getConnection();
+    console.log('[%s] Connecting to MySQL...', new Date().toISOString());
+
+    // 1. หา path ของภาพ
+    const [rows] = await connection.query('SELECT image FROM menu WHERE id = ?', [menuId]);
+    if (rows.length === 0) {
+      connection.release();
+      return res.status(404).json({ error: 'Menu item not found' });
+    }
+
+    const imagePath = rows[0].image;
+    console.log('[%s] Image path:', new Date().toISOString(), imagePath);
+
+    // 2. ลบข้อมูลในฐานข้อมูล
+    const [result] = await connection.query('DELETE FROM menu WHERE id = ?', [menuId]);
+    connection.release();
+
+    // 3. ลบไฟล์ภาพถ้ามี
+    if (imagePath) {
+      const fullImagePath = path.join(__dirname, 'uploads', path.basename(imagePath));
+    
+      if (fs.existsSync(fullImagePath)) {
+        fs.unlinkSync(fullImagePath);
+        console.log('[%s] Image file deleted: %s', new Date().toISOString(), fullImagePath);
+      } else {
+        console.warn('[%s] Image file not found: %s', new Date().toISOString(), fullImagePath);
+      }
+    }
+    
+    res.json({ message: `Menu item with ID ${menuId} deleted successfully` });
+  } catch (err) {
+    console.error('[%s] Error in DELETE /api/admin/menu/:id:', new Date().toISOString(), err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 
 
 
