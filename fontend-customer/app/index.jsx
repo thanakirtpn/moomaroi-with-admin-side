@@ -2,11 +2,22 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity, Alert } from 'react-native';
 import { CameraView, Camera } from 'expo-camera';
 import { useRouter } from 'expo-router';
-
+import { API_BASE_URL } from '@env';
+console.log(API_BASE_URL); // http://192.168.1.4:3000
 export default function IndexScreen() {
   const [hasPermission, setHasPermission] = useState(null);
   const [scanned, setScanned] = useState(false);
   const router = useRouter();
+  let setTableId;
+  try {
+    // eslint-disable-next-line
+    ({ setTableId } = require('../contexts/TableContext').useTable());
+    console.log('useTable loaded successfully in IndexScreen');
+  } catch (error) {
+    console.error('Failed to load useTable in IndexScreen:', error.message);
+  }
+
+  console.log('IndexScreen loaded');
 
   useEffect(() => {
     (async () => {
@@ -15,26 +26,47 @@ export default function IndexScreen() {
     })();
   }, []);
 
-  const handleBarCodeScanned = (result) => {
+  const handleBarCodeScanned = async (result) => {
     if (!scanned) {
       setScanned(true);
-      console.log('Scanned data:', result.data);
+
+      const scannedTableNo = result.data.trim(); // เช่น "01", "02", ..., "12"
+
       try {
-        const data = result.data.startsWith('{') ? JSON.parse(result.data) : { tableId: result.data };
-        Alert.alert('สแกนสำเร็จ', `ยินดีต้อนรับสู่โต๊ะ: ${data.tableId}`, [
+        const response = await fetch(`${API_BASE_URL}/api/tables/scan`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ table_no: scannedTableNo }),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Unknown error');
+        }
+
+        // อัปเดต tableId ใน Context ถ้า setTableId มี
+        if (setTableId) {
+          setTableId(scannedTableNo);
+          console.log('Scanned tableId set in Context:', scannedTableNo);
+        } else {
+          console.warn('setTableId not available in IndexScreen, skipping Context update');
+        }
+
+        Alert.alert('Welcome to MoomAroi!', 'Enjoy your meal 🍽️', [
           {
-            text: 'ตกลง',
+            text: 'OK',
             onPress: () => {
               router.push({
                 pathname: '/(tabs)/menu',
-                params: { tableId: data.tableId },
+                params: { tableId: scannedTableNo },
               });
             },
           },
         ]);
-      } catch (e) {
-        Alert.alert('ข้อผิดพลาด', 'QR Code ไม่ถูกต้อง', [
-          { text: 'ตกลง', onPress: () => setScanned(false) },
+      } catch (err) {
+        Alert.alert('Error', err.message || 'Failed to scan table', [
+          { text: 'Try Again', onPress: () => setScanned(false) },
         ]);
       }
     }
@@ -47,6 +79,7 @@ export default function IndexScreen() {
       </View>
     );
   }
+
   if (hasPermission === false) {
     return (
       <View style={styles.container}>
@@ -127,3 +160,45 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 });
+
+
+// import React, { useEffect } from 'react';
+// import { useRouter } from 'expo-router';
+// import { View, Text, StyleSheet } from 'react-native';
+
+// export default function IndexScreen() {
+//   const router = useRouter();
+
+//   useEffect(() => {
+//     // เพิ่มการหน่วงเวลา 100ms เพื่อให้แน่ใจว่า Root Layout พร้อม
+//     const timer = setTimeout(() => {
+//       const defaultTableId = '01';
+//       router.replace({
+//         pathname: '/(tabs)/menu',
+//         params: { tableId: defaultTableId },
+//       });
+//     }, 100);
+
+//     // ล้าง timer เมื่อ component unmount
+//     return () => clearTimeout(timer);
+//   }, [router]);
+
+//   return (
+//     <View style={styles.container}>
+//       <Text style={styles.loadingText}>กำลังโหลด...</Text>
+//     </View>
+//   );
+// }
+
+// const styles = StyleSheet.create({
+//   container: {
+//     flex: 1,
+//     justifyContent: 'center',
+//     alignItems: 'center',
+//     backgroundColor: '#000',
+//   },
+//   loadingText: {
+//     fontSize: 18,
+//     color: '#fff',
+//   },
+// });
