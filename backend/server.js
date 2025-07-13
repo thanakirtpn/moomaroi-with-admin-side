@@ -4,7 +4,8 @@ const path = require('path');
 const multer = require('multer');
 const cors = require('cors');
 const fs = require('fs');
-const dotenv = require('dotenv');  // เพิ่มบรรทัดนี้
+const dotenv = require('dotenv');  
+const axios = require('axios');
 dotenv.config();  // โหลดค่า .env
 console.log(process.env.DB_HOST);  // ตรวจสอบค่าจาก .env
 
@@ -1451,126 +1452,6 @@ app.post('/api/cart/checkout', async (req, res) => {
   }
 });
 
-// checkout
-// app.post('/api/cart/checkout', async (req, res) => {
-//   const { table_no } = req.body;
-//   let connection;
-
-//   try {
-//     if (!table_no) return res.status(400).json({ error: 'Missing table_no' });
-
-//     connection = await pool.getConnection();
-//     await connection.beginTransaction();
-
-//     // 1. ดึง cart
-//     const [cartRows] = await connection.query(
-//       'SELECT id FROM carts WHERE table_no = ?',
-//       [table_no]
-//     );
-//     if (cartRows.length === 0) {
-//       await connection.rollback();
-//       return res.status(404).json({ error: 'Cart not found for table' });
-//     }
-//     const cartId = cartRows[0].id;
-
-//     // 2. ดึง cart_items
-//     const [cartItems] = await connection.query(
-//       'SELECT * FROM cart_items WHERE cart_id = ?',
-//       [cartId]
-//     );
-//     if (cartItems.length === 0) {
-//       await connection.rollback();
-//       return res.status(400).json({ error: 'Cart is empty' });
-//     }
-
-//     // 3. สร้าง order
-//     const orderNumber = `ORD-${Date.now()}`;
-//     const [orderResult] = await connection.query(
-//       `INSERT INTO orders (order_number, table_number, status, order_date, order_time, total_price)
-//        VALUES (?, ?, 'orderplaced', CURDATE(), CURTIME(), 0.00)`,
-//       [orderNumber, table_no]
-//     );
-//     const orderId = orderResult.insertId;
-
-//     let totalPrice = 0;
-
-//     // 4. Loop cart_items -> order_items
-//     for (const item of cartItems) {
-//       let optionText = null;
-
-//       if (item.meat_option_id) {
-//         const [meatRows] = await connection.query(
-//           'SELECT name FROM meat_options WHERE id = ?',
-//           [item.meat_option_id]
-//         );
-//         optionText = meatRows[0]?.name || null;
-//       }
-
-//       const priceEach = parseFloat(item.total_price) / item.quantity;
-
-//       const [orderItemResult] = await connection.query(
-//         `INSERT INTO order_items (order_id, menu_id, menu_name, \`option\`, quantity, price_each)
-//          VALUES (?, ?, ?, ?, ?, ?)`,
-//         [
-//           orderId,
-//           item.menu_id,
-//           item.menu_name,
-//           optionText,
-//           item.quantity,
-//           priceEach.toFixed(2)
-//         ]
-//       );
-//       const orderItemId = orderItemResult.insertId;
-//       totalPrice += priceEach * item.quantity;
-
-//       // 5. เพิ่ม addon
-//       const [addons] = await connection.query(
-//         'SELECT * FROM cart_item_addons WHERE cart_item_id = ?',
-//         [item.id]
-//       );
-
-//       for (const addon of addons) {
-//         const [addonDetail] = await connection.query(
-//           'SELECT name FROM addon_options WHERE id = ?',
-//           [addon.addon_option_id]
-//         );
-//         const addonName = addonDetail[0]?.name || 'Unknown';
-
-//         await connection.query(
-//           `INSERT INTO order_item_addons (order_item_id, addon_name, addon_price)
-//            VALUES (?, ?, ?)`,
-//           [orderItemId, addonName, addon.price]
-//         );
-
-//         totalPrice += parseFloat(addon.price);
-//       }
-//     }
-
-//     // 6. อัปเดตราคาใน orders
-//     await connection.query(
-//       'UPDATE orders SET total_price = ? WHERE id = ?',
-//       [totalPrice.toFixed(2), orderId]
-//     );
-
-//     // 7. ล้าง cart
-//     await connection.query('DELETE FROM cart_item_addons WHERE cart_item_id IN (SELECT id FROM cart_items WHERE cart_id = ?)', [cartId]);
-//     await connection.query('DELETE FROM cart_items WHERE cart_id = ?', [cartId]);
-//     await connection.query('DELETE FROM carts WHERE id = ?', [cartId]);
-//     await connection.commit();
-//     connection.release();
-
-//     res.json({ message: 'Checkout successful', order_id: orderId, total_price: totalPrice.toFixed(2) });
-
-//   } catch (err) {
-//     if (connection) {
-//       await connection.rollback();
-//       connection.release();
-//     }
-//     console.error('[%s] Error in POST /api/cart/checkout:', new Date().toISOString(), err);
-//     res.status(500).json({ error: 'Internal server error' });
-//   }
-// });
-
 // OrderDetails
 app.get('/api/order/:table_no', async (req, res) => {
   const { table_no } = req.params;
@@ -1999,465 +1880,67 @@ app.post('/api/tables/scan', async (req, res) => {
   }
 });
 
-// Add: POST /api/cart/add - add menu item to cart with meat and addon options
-// app.post('/api/cart/add', async (req, res) => {
-//   let connection;
-//   try {
-//     const { table_no, menu_id, menu_name, meat_option_id, quantity, price_each, addon_option_ids } = req.body;
+// แนะนำเมนู
+app.post('/recommend', async (req, res) => {
+  try {
+    const { user_input, table_id } = req.body;
+    if (!user_input) {
+      console.error('❌ Missing user_input in request body:', req.body);
+      return res.status(400).json({ error: 'user_input is required' });
+    }
+    if (!table_id) {
+      console.error('❌ Missing table_id in request body:', req.body);
+      return res.status(400).json({ error: 'table_id is required' });
+    }
 
-//     // ✅ Validate required fields
-//     if (!table_no || !menu_id || !menu_name || !quantity || !price_each) {
-//       return res.status(400).json({ error: 'Missing required fields' });
-//     }
+    const connection = await pool.getConnection();
+    try {
+      const [results] = await connection.query('SELECT * FROM menu');
+      if (!results || results.length === 0) {
+        console.warn('⚠️ No menus found in database');
+        return res.status(404).json({ error: 'No menus available in database' });
+      }
 
-//     // ✅ Validate table_no ให้มีแค่ '01' ถึง '12' เท่านั้น
-//     const validTableNumbers = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0'));
-//     if (!validTableNumbers.includes(table_no)) {
-//       return res.status(400).json({ error: 'Invalid table number' });
-//     }
+      console.log('\n🔍 Menus sent to Python service:');
+      results.forEach(item => {
+        console.log(`- ${item.name_eng}: tags=${item.tags}, category=${item.category}`);
+      });
 
-//     // ✅ Validate quantity
-//     if (quantity < 1) {
-//       return res.status(400).json({ error: 'Quantity must be at least 1' });
-//     }
+      const menu_data = results.map(item => ({
+        id: item.id,
+        name_eng: item.name_eng,
+        short_description: item.short_description,
+        price_starts_at: item.price_starts_at,
+        combined_text: `${item.tags || ''} ${item.full_description || ''}`,
+        category: item.category,
+        tags: item.tags,
+      }));
 
-//     // ✅ Validate price_each
-//     if (price_each <= 0) {
-//       return res.status(400).json({ error: 'Price must be greater than 0' });
-//     }
+      console.log('📤 Sending to FastAPI:', { user_input, table_id, menu_data_length: menu_data.length });
 
-//     connection = await pool.getConnection();
-//     await connection.beginTransaction();
+      const response = await axios.post('http://172.20.10.3:8000/recommend', {
+        user_input,
+        table_id,
+        menu_data,
+      });
 
-//     // 1. ตรวจสอบว่าโต๊ะมีอยู่ในระบบหรือไม่
-//     const [tableRows] = await connection.query(
-//       'SELECT table_no, status FROM tables WHERE table_no = ?',
-//       [table_no]
-//     );
-//     if (tableRows.length === 0) {
-//       await connection.rollback();
-//       connection.release();
-//       return res.status(404).json({ error: 'Table not found' });
-//     }
-
-//     // 2. ตรวจสอบว่าโต๊ะถูกใช้งานหรือยัง
-//     if (tableRows[0].status !== 'Occupied') {
-//       await connection.rollback();
-//       connection.release();
-//       return res.status(400).json({ error: 'Table is not occupied' });
-//     }
-
-//     // 3. ตรวจสอบหรือสร้าง cart สำหรับโต๊ะนี้
-//     let [cartRows] = await connection.query(
-//       'SELECT id, table_no, created_at FROM carts WHERE table_no = ?',
-//       [table_no]
-//     );
-//     let cartId;
-//     if (cartRows.length === 0) {
-//       const [cartResult] = await connection.query(
-//         'INSERT INTO carts (table_no, created_at) VALUES (?, NOW())',
-//         [table_no]
-//       );
-//       cartId = cartResult.insertId;
-
-//       [cartRows] = await connection.query(
-//         'SELECT id, table_no, created_at FROM carts WHERE id = ?',
-//         [cartId]
-//       );
-//     } else {
-//       cartId = cartRows[0].id;
-//     }
-
-//     // 4. เพิ่มเมนูลง cart_items
-//     const [cartItemResult] = await connection.query(
-//       `INSERT INTO cart_items (cart_id, menu_id, menu_name, quantity, price_each, meat_option_id, created_at)
-//        VALUES (?, ?, ?, ?, ?, ?, NOW())`,
-//       [cartId, menu_id, menu_name, quantity, price_each, meat_option_id || null]
-//     );
-//     const cartItemId = cartItemResult.insertId;
-
-//     const [cartItemRows] = await connection.query(
-//       'SELECT id, menu_id, menu_name, quantity, price_each, meat_option_id FROM cart_items WHERE id = ?',
-//       [cartItemId]
-//     );
-
-//     // 5. เพิ่ม add-ons ถ้ามี
-//     let addons = [];
-//     if (addon_option_ids && Array.isArray(addon_option_ids) && addon_option_ids.length > 0) {
-//       for (const addonId of addon_option_ids) {
-//         const [addonRows] = await connection.query(
-//           'SELECT extra_price FROM addon_options WHERE id = ?',
-//           [addonId]
-//         );
-//         if (addonRows.length === 0) {
-//           await connection.rollback();
-//           connection.release();
-//           return res.status(404).json({ error: `Addon option ID ${addonId} not found` });
-//         }
-//         const addonPrice = addonRows[0].extra_price;
-
-//         await connection.query(
-//           'INSERT INTO cart_item_addons (cart_item_id, addon_option_id, price) VALUES (?, ?, ?)',
-//           [cartItemId, addonId, addonPrice]
-//         );
-//         addons.push({ addon_option_id: addonId, price: addonPrice });
-//       }
-//     }
-
-//     await connection.commit();
-//     connection.release();
-
-//     console.log('[%s] Item added to cart for table %s', new Date().toISOString(), table_no);
-//     res.json({
-//       message: 'Item added to cart successfully',
-//       cart: cartRows[0],
-//       cart_item: cartItemRows[0],
-//       addons,
-//     });
-
-//   } catch (err) {
-//     if (connection) {
-//       await connection.rollback();
-//       connection.release();
-//     }
-//     console.error('[%s] Error in POST /api/cart/add:', new Date().toISOString(), err);
-//     res.status(500).json({ error: 'Internal server error' });
-//   }
-// });
-
-
-
-
-// // POST /api/orders - Create a new order
-// app.post('/api/orders', async (req, res) => {
-//   const { table_no, items } = req.body;
-//   const status = 'Order Placed';
-//   const created_at = new Date();
-//   const order_date = created_at.toISOString().split('T')[0];
-//   const order_time = created_at.toTimeString().split(' ')[0];
-
-//   let connection;
-//   try {
-//     connection = await pool.getConnection();
-//     await connection.beginTransaction();
-
-//     // ตรวจสอบ menu_id และราคา
-//     for (const item of items) {
-//       const [menuRows] = await connection.query('SELECT id, price_starts_at FROM menu WHERE id = ?', [item.menu_id]);
-//       if (menuRows.length === 0) {
-//         await connection.rollback();
-//         return res.status(400).json({ error: `ไม่พบ menu_id: ${item.menu_id}` });
-//       }
-//       const menuPrice = parseFloat(menuRows[0].price_starts_at);
-//       if (parseFloat(item.price) !== menuPrice) {
-//         await connection.rollback();
-//         return res.status(400).json({ error: `ราคาไม่ถูกต้องสำหรับ menu_id ${item.menu_id}` });
-//       }
-//     }
-
-//     // คำนวณราคารวม
-//     let total_price = 0;
-//     for (const item of items) {
-//       total_price += parseFloat(item.price) * item.quantity;
-//     }
-
-//     // บันทึกออเดอร์
-//     const [orderResult] = await connection.query(
-//       'INSERT INTO orders (table_no, order_date, order_time, total_price, status, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-//       [table_no, order_date, order_time, total_price.toFixed(2), status, created_at]
-//     );
-//     const order_id = orderResult.insertId;
-
-//     // บันทึกรายการในออเดอร์
-//     for (const item of items) {
-//       await connection.query(
-//         'INSERT INTO order_items (order_id, menu_id, quantity, price, meat, add_on) VALUES (?, ?, ?, ?, ?, ?)',
-//         [order_id, item.menu_id, item.quantity, parseFloat(item.price).toFixed(2), item.meat || null, item.add_on || null]
-//       );
-//     }
-
-//     // ดึงข้อมูลออเดอร์พร้อมรายการ
-//     const selectQuery = `
-//       SELECT 
-//         o.id, o.table_no, 
-//         DATE_FORMAT(o.order_date, '%Y-%m-%d') AS order_date,
-//         TIME_FORMAT(o.order_time, '%H:%i:%s') AS order_time,
-//         o.total_price, o.status,
-//         oi.id AS order_item_id, oi.menu_id, oi.quantity, oi.price, oi.meat, oi.add_on,
-//         m.name_eng AS menu_name, m.short_description AS subtitle, m.image AS menu_image
-//       FROM orders o
-//       LEFT JOIN order_items oi ON o.id = oi.order_id
-//       LEFT JOIN menu m ON oi.menu_id = m.id
-//       WHERE o.id = ?
-//     `;
-//     const [rows] = await connection.query(selectQuery, [order_id]);
-
-//     const order = {
-//       id: rows[0].id,
-//       table_no: rows[0].table_no,
-//       order_date: rows[0].order_date,
-//       order_time: rows[0].order_time,
-//       total_price: Number(rows[0].total_price),
-//       status: rows[0].status,
-//       items: []
-//     };
-
-//     rows.forEach(row => {
-//       if (row.order_item_id) {
-//         order.items.push({
-//           id: row.order_item_id,
-//           menu_id: row.menu_id,
-//           menu_name: row.menu_name,
-//           subtitle: row.subtitle,
-//           menu_image: row.menu_image || '/uploads/placeholder.jpg',
-//           quantity: row.quantity,
-//           price: Number(row.price),
-//           meat: row.meat,
-//           add_on: row.add_on
-//         });
-//       }
-//     });
-
-//     await connection.commit();
-//     console.log('[%s] สร้างออเดอร์สำเร็จ:', new Date().toISOString(), JSON.stringify(order, null, 2));
-//     res.status(201).json(order);
-//   } catch (err) {
-//     if (connection) await connection.rollback();
-//     console.error('[%s] เกิดข้อผิดพลาดใน POST /api/orders:', new Date().toISOString(), err);
-//     res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในเซิร์ฟเวอร์' });
-//   } finally {
-//     if (connection) connection.release();
-//   }
-// });
-
-
-// app.get('/api/orders', async (req, res) => {
-//   try {
-//     const connection = await pool.getConnection();
-//     const query = `
-//       SELECT 
-//         o.id, o.table_no, 
-//         DATE_FORMAT(o.order_date, '%Y-%m-%d') AS order_date, 
-//         TIME_FORMAT(o.order_time, '%H:%i:%s') AS order_time, 
-//         o.total_price, o.status,
-//         oi.id AS order_item_id, oi.menu_id, oi.quantity, oi.price, oi.meat, oi.add_on,
-//         m.name AS menu_name, m.subtitle, m.image AS menu_image
-//       FROM orders o
-//       LEFT JOIN order_items oi ON o.id = oi.order_id
-//       LEFT JOIN menu m ON oi.menu_id = m.id
-//       ORDER BY o.created_at DESC LIMIT 100
-//     `;
-//     const [rows] = await connection.query(query);
-
-//     const orders = [];
-//     const orderMap = new Map();
-//     rows.forEach(row => {
-//       if (!orderMap.has(row.id)) {
-//         orderMap.set(row.id, {
-//           id: row.id,
-//           table_no: row.table_no,
-//           order_date: row.order_date,
-//           order_time: row.order_time,
-//           total_price: Number(row.total_price),
-//           status: row.status,
-//           items: [], // เริ่มต้นด้วย array ว่าง
-//         });
-//       }
-//       if (row.order_item_id) {
-//         orderMap.get(row.id).items.push({
-//           id: row.order_item_id,
-//           menu_id: row.menu_id,
-//           menu_name: row.menu_name,
-//           subtitle: row.subtitle,
-//           menu_image: row.menu_image ? row.menu_image.replace('/Uploads/', '/uploads/') : '/uploads/placeholder.jpg',
-//           quantity: row.quantity,
-//           price: Number(row.price),
-//           meat: row.meat,
-//           add_on: row.add_on,
-//         });
-//       }
-//     });
-//     orders.push(...orderMap.values());
-
-//     connection.release();
-//     console.log('[%s] Orders sent: %d orders', new Date().toISOString(), orders.length);
-//     res.json(orders);
-//   } catch (err) {
-//     console.error('[%s] Error in GET /api/orders:', new Date().toISOString(), err);
-//     res.status(500).json({ error: 'Internal server error' });
-//   }
-// });
-// // PATCH /api/orders/:id/status - Update order status
-// app.patch('/api/orders/:id/status', async (req, res) => {
-//   try {
-//     const { id } = req.params;
-//     const { status } = req.body;
-
-//     // ตรวจสอบว่ามี status ใน body
-//     if (!status) {
-//       return res.status(400).json({ error: 'Status is required' });
-//     }
-
-//     const connection = await pool.getConnection();
-//     const query = `
-//       UPDATE orders 
-//       SET status = ?, updated_at = NOW()
-//       WHERE id = ?
-//     `;
-//     const [result] = await connection.query(query, [status, id]);
-
-//     connection.release();
-
-//     if (result.affectedRows === 0) {
-//       return res.status(404).json({ error: 'Order not found' });
-//     }
-
-//     console.log('[%s] Order %s status updated to: %s', new Date().toISOString(), id, status);
-//     res.json({ message: 'Status updated successfully' });
-//   } catch (err) {
-//     console.error('[%s] Error in PATCH /api/orders/:id/status:', new Date().toISOString(), err);
-//     res.status(500).json({ error: 'Internal server error' });
-//   }
-// });
-
-// // GET /api/tables - ดึงสถานะทุกโต๊ะและราคารวม
-// app.get('/api/tables', async (req, res) => {
-//   try {
-//     const connection = await pool.getConnection();
-    
-//     // ดึงสถานะโต๊ะ
-//     const [tables] = await connection.query('SELECT table_no, status FROM tables');
-    
-//     // ดึงราคารวมของแต่ละโต๊ะ
-//     const tableStatus = await Promise.all(tables.map(async (table) => {
-//       const [orders] = await connection.query(
-//         'SELECT SUM(total_price) AS total_price FROM orders WHERE table_no = ? AND status != "Complete"',
-//         [table.table_no]
-//       );
-//       const totalPrice = orders[0].total_price ? Number(orders[0].total_price) : 0;
-//       return {
-//         table_no: table.table_no,
-//         status: table.status,
-//         total_price: totalPrice
-//       };
-//     }));
-    
-//     connection.release();
-//     console.log('[%s] Tables sent: %d tables', new Date().toISOString(), tableStatus.length);
-//     res.json(tableStatus);
-//   } catch (err) {
-//     console.error('[%s] Error in GET /api/tables:', new Date().toISOString(), err);
-//     res.status(500).json({ error: 'Internal server error' });
-//   }
-// });
-
-
-
-// // GET /api/tables/:table_no/orders - ดึงออเดอร์ของโต๊ะ
-// app.get('/api/tables/:table_no/orders', async (req, res) => {
-//   try {
-//     const { table_no } = req.params;
-    
-//     const connection = await pool.getConnection();
-//     const query = `
-//       SELECT 
-//         o.id, o.table_no, 
-//         DATE_FORMAT(o.order_date, '%Y-%m-%d') AS order_date, 
-//         TIME_FORMAT(o.order_time, '%H:%i:%s') AS order_time, 
-//         o.total_price, o.status,
-//         oi.id AS order_item_id, oi.menu_id, oi.quantity, oi.price, oi.meat, oi.add_on,
-//         m.name AS menu_name, m.subtitle, m.image AS menu_image
-//       FROM orders o
-//       LEFT JOIN order_items oi ON o.id = oi.order_id
-//       LEFT JOIN menu m ON oi.menu_id = m.id
-//       WHERE o.table_no = ? AND o.status != 'Complete'
-//       ORDER BY o.created_at DESC
-//     `;
-//     const [rows] = await connection.query(query, [table_no]);
-    
-//     const orders = [];
-//     const orderMap = new Map();
-//     rows.forEach(row => {
-//       if (!orderMap.has(row.id)) {
-//         orderMap.set(row.id, {
-//           id: row.id,
-//           table_no: row.table_no,
-//           order_date: row.order_date,
-//           order_time: row.order_time,
-//           total_price: Number(row.total_price),
-//           status: row.status,
-//           items: []
-//         });
-//       }
-//       if (row.order_item_id) {
-//         orderMap.get(row.id).items.push({
-//           id: row.order_item_id,
-//           menu_id: row.menu_id,
-//           menu_name: row.menu_name,
-//           subtitle: row.subtitle,
-//           menu_image: row.menu_image ? row.menu_image.replace('/Uploads/', '/uploads/') : '/uploads/placeholder.jpg',
-//           quantity: row.quantity,
-//           price: Number(row.price),
-//           meat: row.meat,
-//           add_on: row.add_on
-//         });
-//       }
-//     });
-//     orders.push(...orderMap.values());
-    
-//     // คำนวณราคารวมและ VAT
-//     const totalPrice = orders.reduce((sum, order) => sum + order.total_price, 0);
-//     const vat = totalPrice * 0.07;
-//     const totalWithVat = totalPrice + vat;
-    
-//     connection.release();
-//     console.log('[%s] Orders for table %s sent: %d orders', new Date().toISOString(), table_no, orders.length);
-//     res.json({
-//       orders,
-//       summary: {
-//         subtotal: totalPrice,
-//         vat: vat,
-//         total: totalWithVat
-//       }
-//     });
-//   } catch (err) {
-//     console.error('[%s] Error in GET /api/tables/:table_no/orders:', new Date().toISOString(), err);
-//     res.status(500).json({ error: 'Internal server error' });
-//   }
-// });
-
-// // POST /api/tables/:table_no/complete - เปลี่ยนสถานะออเดอร์เป็น Complete และรีเซ็ตโต๊ะ
-// app.post('/api/tables/:table_no/complete', async (req, res) => {
-//   try {
-//     const { table_no } = req.params;
-    
-//     const connection = await pool.getConnection();
-    
-//     // อัปเดตสถานะออเดอร์
-//     const [updateResult] = await connection.query(
-//       'UPDATE orders SET status = "Complete" WHERE table_no = ? AND status != "Complete"',
-//       [table_no]
-//     );
-    
-//     // รีเซ็ตสถานะโต๊ะ
-//     const [tableResult] = await connection.query(
-//       'UPDATE tables SET status = "Available" WHERE table_no = ?',
-//       [table_no]
-//     );
-    
-//     if (tableResult.affectedRows === 0) {
-//       connection.release();
-//       return res.status(404).json({ error: 'Table not found' });
-//     }
-    
-//     connection.release();
-//     console.log('[%s] Table %s marked as complete', new Date().toISOString(), table_no);
-//     res.json({ message: 'Table orders completed and reset to Available' });
-//   } catch (err) {
-//     console.error('[%s] Error in POST /api/tables/:table_no/complete:', new Date().toISOString(), err);
-//     res.status(500).json({ error: 'Internal server error' });
-//   }
-// });
+      console.log('✅ Python service response:', response.data);
+      res.json(response.data);
+    } catch (error) {
+      console.error('❌ Error in recommendation endpoint:', error.message, error.response?.data);
+      res.status(500).json({
+        error: 'Failed to generate recommendations',
+        details: error.message,
+        fastapi_response: error.response?.data,
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('❌ Error in recommendation endpoint:', error.message);
+    res.status(500).json({ error: 'Internal server error', details: error.message });
+  }
+});
 
 // เริ่มเซิร์ฟเวอร์
 const PORT = 3000;

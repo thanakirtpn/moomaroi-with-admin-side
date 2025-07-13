@@ -2,12 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, TextInput, ScrollView, Image, FlatList, ActivityIndicator } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation } from 'expo-router';
-import { API_BASE_URL } from '@env';
-console.log('API_BASE_URL Menu:', API_BASE_URL); // ✅ เพิ่มบรรทัดนี้
+// import { API_BASE_URL } from '@env';
+const API_BASE_URL = 'http://172.20.10.3:3000';
 import { useLocalSearchParams } from 'expo-router';
 import { useTable } from '../../contexts/TableContext'; // ปรับ path ตามโครงสร้าง
-
-
+console.log('API_BASE_URL Menu:', API_BASE_URL); // ✅ เพิ่มบรรทัดนี้
 
 
 const MenuHomeScreen = () => {

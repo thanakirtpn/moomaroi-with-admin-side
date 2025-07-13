@@ -4,7 +4,8 @@ import { View, Text, StyleSheet, TouchableOpacity, Image, ActivityIndicator, Ale
 import { useNavigation } from 'expo-router';
 import { Feather, FontAwesome } from '@expo/vector-icons';
 import { useTable } from '../contexts/TableContext';
-import { API_BASE_URL } from '@env';
+// import { API_BASE_URL } from '@env';
+const API_BASE_URL = 'http://172.20.10.3:3000';
 
 console.log(API_BASE_URL); // http://192.168.1.4:3000
 

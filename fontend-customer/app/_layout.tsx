@@ -1,10 +1,3 @@
-// import { Stack } from 'expo-router';
-
-// export default function Layout() {
-//   return <Stack />;
-// }
-
-
 import { Stack } from 'expo-router';
 import { TableProvider } from '../contexts/TableContext';
 import { SafeAreaProvider } from 'react-native-safe-area-context';

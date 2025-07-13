@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
-import { API_BASE_URL } from '@env';
+// import { API_BASE_URL } from '@env';
+const API_BASE_URL = 'http://172.20.10.3:3000';
 console.log(API_BASE_URL); // http://192.168.1.4:3000
 const MeatAndAddOnSelection = ({ onMeatSelect, onAddOnSelect }) => {
   const [selectedMeat, setSelectedMeat] = useState(null);

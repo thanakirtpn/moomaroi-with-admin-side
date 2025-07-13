@@ -2,8 +2,10 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity, Alert } from 'react-native';
 import { CameraView, Camera } from 'expo-camera';
 import { useRouter } from 'expo-router';
-import { API_BASE_URL } from '@env';
+// import { API_BASE_URL } from '@env';
+const API_BASE_URL = 'http://172.20.10.3:3000';
 console.log(API_BASE_URL); // http://192.168.1.4:3000
+
 export default function IndexScreen() {
   const [hasPermission, setHasPermission] = useState(null);
   const [scanned, setScanned] = useState(false);

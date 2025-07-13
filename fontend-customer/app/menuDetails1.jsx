@@ -4,7 +4,8 @@ import { useLocalSearchParams, useNavigation } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import MeatAndAddOnSelection from './meatAndAddOnSelection';
 import AddToCartBar from './AddToCartBar';
-import { API_BASE_URL } from '@env';
+// import { API_BASE_URL } from '@env';
+const API_BASE_URL = 'http://172.20.10.3:3000';
 import { useTable } from '../contexts/TableContext'; // ปรับ path ตามโครงสร้าง
 console.log(API_BASE_URL); // http://192.168.1.4:3000
 const menuDetails1 = () => {

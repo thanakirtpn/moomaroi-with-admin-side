@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Tabs } from 'expo-router';
 import { useLocalSearchParams, usePathname } from 'expo-router';
 import { StyleSheet, View, Text, TouchableOpacity, Image } from 'react-native';
-
+// import { API_BASE_URL } from '@env';
+// console.log('API_BASE_URL', API_BASE_URL);
 export default function TabsLayout() {
   const { tableId } = useLocalSearchParams();
   const pathname = usePathname();

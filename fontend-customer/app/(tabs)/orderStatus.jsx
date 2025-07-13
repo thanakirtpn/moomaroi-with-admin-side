@@ -12,7 +12,8 @@ import {
 import { FontAwesome, MaterialIcons, Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useTable } from '../../contexts/TableContext';
-import { API_BASE_URL } from '@env';
+// import { API_BASE_URL } from '@env';
+const API_BASE_URL = 'http://172.20.10.3:3000';
 console.log('API_BASE_URL:', API_BASE_URL);
 
 const OrderStatusScreen = () => {
